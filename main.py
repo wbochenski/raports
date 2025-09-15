@@ -1,8 +1,9 @@
 from essa import *
 
-args = GetArguments()
-
 db, connection = ConnectToDatabase('YourStrong.Passw0rd')
+
+args = GetArguments()
+Log(f"Arguments: {str(args)}")
 
 template = ReadTemplateFromPath(f"./templates/{args["template"]}.csv")
 raport = ParseTemplateToRaport(db, template)

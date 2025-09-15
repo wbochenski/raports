@@ -4,9 +4,8 @@ import pandas as pd
 import numpy as np
 import pyodbc
 import re
-import os
 
-logging = False
+logging = True
 
 def GetArguments() -> dict:
     import argparse
@@ -25,22 +24,9 @@ def GetArguments() -> dict:
 
     for i in args._get_kwargs():
         arguments[i[0]] = i[1]
-
-    # Validate date format (dddd-dd)
-    date_pattern = re.compile(r'^\d{4}-\d{2}$')
     
-    if not re.match(date_pattern, arguments['date_from']):
-        raise ValueError(f"Invalid date format for 'date-from'. Expected format is dddd-dd, but got {arguments['date_from']}")
-
-    if not re.match(date_pattern, arguments['date_to']):
-        raise ValueError(f"Invalid date format for 'date-to'. Expected format is dddd-dd, but got {arguments['date_to']}")
-
-    # Validate that the given paths exist
-    if not os.path.exists(f"./templates/{arguments['template']}.csv"):
-        raise FileNotFoundError(f"The template path '{arguments['template_path']}' does not exist.")
-    
-    # if os.path.exists(f"./raports/{arguments['raport']}.csv"):
-    #     raise FileNotFoundError(f"The report path '{arguments['raport_path']}' already exists.")
+    arguments["date_from"] = "'" + arguments["date_from"] + "-01'"
+    arguments["date_to"] = "'" + arguments["date_to"] + "-01'"
 
     return arguments
 
@@ -55,6 +41,7 @@ def ParseTemplateToRaport(db: pyodbc.Cursor, file: dict) -> dict:
     Returns:
         dict: A new dictionary containing the parsed template with the updated data.
     """
+    Log(f"Parsing template with ID: {file["ID"]}")
     rows = file["Data"].values.tolist()
     for i in range(len(rows)):
         rows[i][2] = ExecuteAnything(db, rows[i][2])
@@ -64,6 +51,7 @@ def ParseTemplateToRaport(db: pyodbc.Cursor, file: dict) -> dict:
         "Column Names": file["Column Names"],
         "Data": pd.DataFrame(rows)
     }
+    Log(f"Raport parsed.")
 
     return file2
 
@@ -78,13 +66,17 @@ def ExecuteAnything(cursor: pyodbc.Cursor, query: str) -> List:
     Returns:
         List: The result of the executed query.
     """
+    Log(f"Executing query: {query}")
+
     if pd.isna(query):
         return query
     
     divided_query = re.split(r'(\s[\+\-\*/]\s)', query)
 
+    Log(f"Query ({query}) splited into: {str(divided_query)}")
+
     for i in range(len(divided_query)):
-        if divided_query[i] not in ['+', '-', '*', '/']:
+        if divided_query[i] not in [' + ', ' - ', ' * ', ' / ']:
             translated_query = TranslateFromOwnCommandToSQL(divided_query[i])
             sql_executed_with_translated_query = ExecuteSQL(cursor, translated_query)
             if sql_executed_with_translated_query != "N/D":
@@ -92,8 +84,11 @@ def ExecuteAnything(cursor: pyodbc.Cursor, query: str) -> List:
     
     # print(divided_query)
     expression = "".join(divided_query)
+    essa = eval(expression)
 
-    return eval(expression)
+    Log(f"Query ({query}) executed successfully: {essa}")
+
+    return essa
 
 def TranslateFromOwnCommandToSQL(query):
     """
@@ -105,6 +100,8 @@ def TranslateFromOwnCommandToSQL(query):
     Returns:
         str: The translated SQL query.
     """
+    Log(f"Translating query: {query}")
+    base_query = query
     for trans in translations:
 
         translation = re.sub(r'\(', r'\\(', trans)
@@ -134,8 +131,16 @@ def TranslateFromOwnCommandToSQL(query):
         new_string = re.sub(pattern, replace_match, query)
 
         if query != new_string:
+            args = GetArguments()
+            new_string = re.sub(r'@([a-zA-Z_][a-zA-Z0-9_]*)', lambda match: args.get(match.group(1), f"@{match.group(1)}"), new_string)
+            Log(f"Query ({base_query}) translated: {new_string}")
             return new_string
-        
+    
+    args = GetArguments()
+    query = re.sub(r'@([a-zA-Z_][a-zA-Z0-9_]*)', lambda match: args.get(match.group(1), f"@{match.group(1)}"), query)
+    
+    Log(f"Query ({base_query}) translated: {query}")
+
     return query
 
 def ConnectToDatabase(password: str) -> Tuple[pyodbc.Cursor, pyodbc.Connection]:
@@ -168,14 +173,16 @@ def ExecuteSQL(cursor: pyodbc.Cursor, query: str) -> List:
     Returns:
         List: The first result from the query execution.
     """
-    Log(f"Executing query: {query}.")
+    Log(f"Executing SQL: {query}.")
     try:
         cursor.execute(query)
         output = cursor.fetchall()[0][0]
-        Log(f"Execution successfull: {str(output)}")
+        Log(f"SQL ({query}) execution successfull returning {str(output)}")
+        if output is None:
+            return 0
         return output
     except Exception as e:
-        Log(f"Execution failed: {e}")
+        Log(f"!!! - SQL ({query}) execution failed returning {query}. Error: {e}")
         return "N/D"
 
 def ReadTemplateFromPath(path: str) -> dict:
@@ -196,10 +203,10 @@ def ReadTemplateFromPath(path: str) -> dict:
             "Column Names": list(df.iloc[1].values),
             "Data": pd.DataFrame(df.iloc[2:].reset_index(drop=True))
         }
-        Log(f"Reading successfull. ID: {template["ID"]}.")
+        Log(f"Reading template ({path}) successfull. Read ID: {template["ID"]}.")
         return template
     except:
-        Log(f"Reading failed.")
+        Log(f"!!! - Reading failed.")
         exit()
 
 
