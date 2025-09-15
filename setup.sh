@@ -1,6 +1,9 @@
 #!/bin/bash
 clear
 
+mkdir raports
+mkdir data
+
 # Install necessary packages and set up the SQL Server container
 pacman -S --noconfirm unixodbc
 sudo -u user yay -S --noconfirm msodbcsql17
@@ -113,3 +116,5 @@ try:
 except Exception as e:
     print("Operation failed:", e)
 EOF
+
+chown -R user:user ./*
