@@ -5,10 +5,10 @@ import numpy as np
 import pyodbc
 import re
 
-logging = True
+logging = False
 
 memory = {}
-ID = ""
+safeblock = 5
 
 def GetArguments() -> dict:
     import argparse
@@ -49,6 +49,10 @@ def ParseTemplateToRaport(db: pyodbc.Cursor, file: dict) -> dict:
     for i in range(len(rows)):
         rows[i][2] = ExecuteAnything(db, rows[i][2], rows[i][0], file["ID"])
     
+    for i in range(len(rows)):
+        rows[i][2] = PartSum(db, rows[i][2], rows[i][0], file["ID"])
+    
+
     file2 = {
         "ID": file["ID"],
         "Column Names": file["Column Names"],
@@ -57,6 +61,18 @@ def ParseTemplateToRaport(db: pyodbc.Cursor, file: dict) -> dict:
     Log(f"Raport parsed.")
 
     return file2
+
+def PartSum(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) -> List:
+    if query == "PartSum()":
+        sum = 0
+
+        for i in memory:
+            if i.startswith(fileID + " " + rowID + '.') and memory[i] != "PartSum()":
+                sum += memory[i]
+
+        return sum
+    else:
+        return query
 
 def ExecuteAnything(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) -> List:
     """
@@ -83,16 +99,19 @@ def ExecuteAnything(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) 
             match1 = re.match(r"VAL\((.+)\)", divided_query[i])
             if match1:
                 value = match1.group(1)
-                print(value)
                 if "," in value:
                     Log("essa")
                     value = value.split(",")
                     # raportID = value[0]
                     # rowID = value[1]
-                    template = ReadTemplateFromPath(f"./templates/{value[0]}.csv")
-                    file = ParseTemplateToRaport(cursor, template)
-                    divided_query[i] = str(memory[file["ID"] + " " + str(value[1])])
-                    print("------" + str(divided_query[i]))
+                    global safeblock    
+                    if safeblock >= 0:
+                        safeblock -= 1
+                        template = ReadTemplateFromPath(f"./templates/{value[0]}.csv")
+                        file = ParseTemplateToRaport(cursor, template)
+                        divided_query[i] = str(memory[file["ID"] + " " + str(value[1])])
+                    else:
+                        divided_query[i] = str(-9999999999)
                 else:
                     divided_query[i] = str(memory[fileID + " " + str(value)])
                 continue
@@ -103,7 +122,10 @@ def ExecuteAnything(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) 
     
     # print(divided_query)
     expression = "".join(divided_query)
-    essa = eval(expression)
+    if expression != "PartSum()":
+        essa = eval(expression)
+    else:
+        essa = "PartSum()"
 
     memory[fileID + " " + str(rowID)] = essa
 

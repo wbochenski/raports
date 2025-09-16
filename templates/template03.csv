@@ -1,0 +1,11 @@
+ID;Raport 3;
+Numer;Nazwa;Polecenie
+1;Zarobki;PartSum()
+1.1;Praca;100
+1.2;Inne;50
+2;Wydatki;PartSum()
+2.1;Jedzenie;PartSum()
+2.1.1;essa;10
+2.1.2;essa2;VAL(template02,1) * 5
+2.2;Paliwo;2
+2.3;Paliwo;3
