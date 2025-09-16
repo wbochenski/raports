@@ -4,14 +4,15 @@ import numpy as np
 import pyodbc
 import re
 
-ENABLE_LOGGING = False
-MEMORY = {}
-RECURENCY_SAFEBLOCK = 5
-TRANSLATIONS = {
+FUNCTIONS = {
     "SUM($1, $2)": "SELECT SUM($1) FROM Data WHERE ID LIKE '$2' AND Date > @date_from AND Date <= @date_to",
     "ESSA($1, $2)": "SELECT 69",
     "ESSA3($1)": "SELECT 69 - $1"
 }
+
+ENABLE_LOGGING = True
+MEMORY = {}
+RECURENCY_SAFEBLOCK = 5
 
 def Log(message: str) -> None:
     from datetime import datetime
@@ -84,10 +85,10 @@ def ParseTemplateToRaport(cursor: pyodbc.Cursor, template: dict) -> dict:
     Log(f"Parsing template ({template["ID"]}).")
     rows = template["Data"].values.tolist()
     for i in range(len(rows)):
-        rows[i][2] = ExecuteAnything(cursor, rows[i][2], rows[i][0], template["ID"])
+        rows[i][2] = ExecuteQuery(cursor, rows[i][2], rows[i][0], template["ID"])
     
     for i in range(len(rows)):
-        rows[i][2] = PartSum(cursor, rows[i][2], rows[i][0], template["ID"])
+        rows[i][2] = ExecutePartSums(cursor, rows[i][2], rows[i][0], template["ID"])
     
     calculated_raport = {
         "ID": template["ID"],
@@ -99,141 +100,119 @@ def ParseTemplateToRaport(cursor: pyodbc.Cursor, template: dict) -> dict:
 
     return calculated_raport
 
-# ----------------------------------------------------------------------------------------------
-
-def TranslateFromOwnCommandToSQL(query):
-    """
-    Translates a SQL query by applying substitutions based on predefined translation patterns.
-
-    Args:
-        query (str): The original SQL query to be translated.
-
-    Returns:
-        str: The translated SQL query.
-    """
-    Log(f"Translating query: {query}")
-    base_query = query
-    for trans in TRANSLATIONS:
-
-        translation = re.sub(r'\(', r'\\(', trans)
-        translation = re.sub(r'\)', r'\\)', translation)
-        translation = re.sub(r'\$(\d+)', r'(\\S+)', translation)
-
-        pattern = re.compile(translation)
-
-        def replace_match(match):
-            """
-            Replaces matched groups in the query using the provided translation patterns.
-
-            Args:
-                match (re.Match): The match object containing the matched groups.
-
-            Returns:
-                str: The translated string with replaced patterns.
-            """
-            def rep2(match2):
-                number = int(match2.group(1))
-                return str(match.group(number))  
-
-            new_string = re.sub(r'\$(\d+)', rep2, TRANSLATIONS[trans])
-
-            return new_string
-
-        new_string = re.sub(pattern, replace_match, query)
-
-        if query != new_string:
-            args = GetArguments()
-            new_string = re.sub(r'@([a-zA-Z_][a-zA-Z0-9_]*)', lambda match: args.get(match.group(1), f"@{match.group(1)}"), new_string)
-            Log(f"Query ({base_query}) translated: {new_string}")
-            return new_string
-    
-    args = GetArguments()
-    query = re.sub(r'@([a-zA-Z_][a-zA-Z0-9_]*)', lambda match: args.get(match.group(1), f"@{match.group(1)}"), query)
-    
-    Log(f"Query ({base_query}) translated: {query}")
-
-    return query
-
 def ExecuteSQL(cursor: pyodbc.Cursor, query: str) -> List:
-    Log(f"Executing SQL: {query}.")
+    Log(f"Executing SQL ({query}) on Database.")
     try:
         cursor.execute(query)
         output = cursor.fetchall()[0][0]
-        Log(f"SQL ({query}) execution successfull returning {str(output)}")
+        Log(f"SQL ({query}) execution successfull ({str(output)})")
         if output is None:
             return 0
         return output
     except Exception as e:
-        Log(f"!!! - SQL ({query}) execution failed returning {query}. Error: {e}")
+        Log(f"!!! - SQL ({query}) execution failed ({e})")
         return "N/D"
 
-def ExecuteAnything(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) -> List:
-    """
-    Maps the given query to its corresponding value by executing a translated SQL query.
+def ExecuteQuery(cursor: pyodbc.Cursor, query: str, rowID: str, templateID: str) -> List:
+    
+    def SubstitutePartsOfQuery(query: str) -> str:
+        Log(f"Substitute query ({query})")
 
-    Args:
-        cursor (pyodbc.Cursor): The cursor object used to execute database queries.
-        query (str): The SQL query string to be mapped.
+        def SubstituteFunction(query: str) -> str:
+            for function in FUNCTIONS:
 
-    Returns:
-        List: The result of the executed query.
-    """
-    Log(f"Executing query: {query}")
+                regularExpression = re.sub(r'\(', r'\\(', function)
+                regularExpression = re.sub(r'\)', r'\\)', regularExpression)
+                regularExpression = re.sub(r'\$(\d+)', r'(\\S+)', regularExpression)
+
+                pattern = re.compile(regularExpression)
+
+                def ReplaceFunction(match):
+                    def ReplaceParameters(match2):
+                        parameter_value = int(match2.group(1))
+                        return str(match.group(parameter_value))  
+                    return re.sub(r'\$(\d+)', ReplaceParameters, FUNCTIONS[function])
+
+                new_query = re.sub(pattern, ReplaceFunction, query)
+
+                if query != new_query:
+                    return new_query
+            return query
+        
+        def SubstituteArguments(query: str) -> str:
+            args = GetArguments()
+            return re.sub(r'@([a-zA-Z_][a-zA-Z0-9_]*)', lambda match: args.get(match.group(1), f"@{match.group(1)}"), query)
+        
+        new_query = SubstituteArguments(SubstituteFunction(query))
+
+        Log(f"Query ({query}) substitiuted ({new_query})")
+        return new_query
+    
+    def CalculateDiffrentCell(query: str) -> str:
+        match1 = re.match(r"VAL\((.+)\)", query)
+        if match1:
+            value = match1.group(1)
+            if "," in value:
+                value = value.split(",")
+                global RECURENCY_SAFEBLOCK    
+                if RECURENCY_SAFEBLOCK >= 0:
+                    RECURENCY_SAFEBLOCK -= 1
+                    template = ReadTemplateFromPath(f"./templates/{value[0]}.csv")
+                    file = ParseTemplateToRaport(cursor, template)
+                    return str(MEMORY[file["ID"] + " " + str(value[1])])
+                else:
+                    return str(-9999999999)
+            else:
+                return str(MEMORY[templateID + " " + str(value)])
+        else:
+            return query
+
+    Log(f"Executing query ({query})")
 
     if pd.isna(query):
         return query
     
-    divided_query = re.split(r'(\s[\+\-\*/]\s)', query)
+    subqueries = re.split(r'(\s[\+\-\*/]\s)', query)
 
-    Log(f"Query ({query}) splited into: {str(divided_query)}")
+    Log(f"Query ({query}) splited into: {str(subqueries)}")
 
-    for i in range(len(divided_query)):
-        if divided_query[i] not in [' + ', ' - ', ' * ', ' / ']:
-            match1 = re.match(r"VAL\((.+)\)", divided_query[i])
-            if match1:
-                value = match1.group(1)
-                if "," in value:
-                    Log("essa")
-                    value = value.split(",")
-                    # raportID = value[0]
-                    # rowID = value[1]
-                    global RECURENCY_SAFEBLOCK    
-                    if RECURENCY_SAFEBLOCK >= 0:
-                        RECURENCY_SAFEBLOCK -= 1
-                        template = ReadTemplateFromPath(f"./templates/{value[0]}.csv")
-                        file = ParseTemplateToRaport(cursor, template)
-                        divided_query[i] = str(MEMORY[file["ID"] + " " + str(value[1])])
-                    else:
-                        divided_query[i] = str(-9999999999)
-                else:
-                    divided_query[i] = str(MEMORY[fileID + " " + str(value)])
-                continue
-            translated_query = TranslateFromOwnCommandToSQL(divided_query[i])
+    for i in range(len(subqueries)):
+        if subqueries[i] not in [' + ', ' - ', ' * ', ' / ']:
+            subqueries[i] = CalculateDiffrentCell(subqueries[i])
+            translated_query = SubstitutePartsOfQuery(subqueries[i])
             sql_executed_with_translated_query = ExecuteSQL(cursor, translated_query)
             if sql_executed_with_translated_query != "N/D":
-                divided_query[i] = str(sql_executed_with_translated_query)
+                subqueries[i] = str(sql_executed_with_translated_query)
     
-    # print(divided_query)
-    expression = "".join(divided_query)
+    expression = "".join(subqueries)
     if expression != "PartSum()":
-        essa = eval(expression)
+        result = eval(expression)
     else:
-        essa = "PartSum()"
+        result = "PartSum()"
 
-    MEMORY[fileID + " " + str(rowID)] = essa
+    MEMORY[templateID + " " + str(rowID)] = result
 
-    Log(f"Query ({query}) executed successfully: {essa}")
+    Log(f"Query ({query}) executed successfully: {result}")
 
-    return essa
+    return result
 
-def PartSum(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) -> List:
+def ExecutePartSums(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) -> List:
     if query == "PartSum()":
         sum = 0
-
         for i in MEMORY:
             if i.startswith(fileID + " " + rowID + '.') and MEMORY[i] != "PartSum()":
                 sum += MEMORY[i]
-
         return sum
     else:
         return query
+
+db, connection = ConnectToDatabase('YourStrong.Passw0rd')
+
+args = GetArguments()
+Log(f"Arguments: {str(args)}")
+
+template = ReadTemplateFromPath(f"./templates/{args["template"]}.csv")
+raport = ParseTemplateToRaport(db, template)
+SaveRaportToAFile(raport, f"./raports/{args["raport"]}.csv")
+
+CloseDatabaseConnection(db, connection)

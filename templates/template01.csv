@@ -6,4 +6,4 @@ Numer;Nazwa;Polecenie
 2;Wydatki;"SELECT SUM(Value) FROM Data WHERE ID LIKE '702-1-%-1-0';"
 2.1;Jedzenie;"SUM(Value, 702-1-%-1-0)"
 2.2;Paliwo;ESSA(Value, 702-1-%-1-0)
-2.3;Paliwo;VAL(Raport1,1) * 5
+2.3;Paliwo;VAL(template02,1) * 5
