@@ -1,9 +1,9 @@
 ID;Raport 1;
 Numer;Nazwa;Polecenie
-1;Zarobki;"SELECT 5 * 5"
+1;Zarobki;"SELECT 5 * 10"
 1.1;Praca;"SELECT SUM(Value) AS total_essa FROM Data;"
 1.2;Inne;SELECT 100 * SUM(Value, 702-1-%-1-0)
 2;Wydatki;"SELECT SUM(Value) FROM Data WHERE ID LIKE '702-1-%-1-0';"
 2.1;Jedzenie;"SUM(Value, 702-1-%-1-0)"
 2.2;Paliwo;ESSA(Value, 702-1-%-1-0)
-2.3;Paliwo;
+2.3;Paliwo;VAL(template02,1) * 5

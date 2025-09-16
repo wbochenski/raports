@@ -9,4 +9,6 @@ template = ReadTemplateFromPath(f"./templates/{args["template"]}.csv")
 raport = ParseTemplateToRaport(db, template)
 SaveRaportToAFile(raport, f"./raports/{args["raport"]}.csv")
 
+print(memory)
+
 CloseDatabaseConnection(db, connection)

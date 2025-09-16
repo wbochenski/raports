@@ -7,6 +7,9 @@ import re
 
 logging = True
 
+memory = {}
+ID = ""
+
 def GetArguments() -> dict:
     import argparse
 
@@ -44,8 +47,8 @@ def ParseTemplateToRaport(db: pyodbc.Cursor, file: dict) -> dict:
     Log(f"Parsing template with ID: {file["ID"]}")
     rows = file["Data"].values.tolist()
     for i in range(len(rows)):
-        rows[i][2] = ExecuteAnything(db, rows[i][2])
-
+        rows[i][2] = ExecuteAnything(db, rows[i][2], rows[i][0], file["ID"])
+    
     file2 = {
         "ID": file["ID"],
         "Column Names": file["Column Names"],
@@ -55,7 +58,7 @@ def ParseTemplateToRaport(db: pyodbc.Cursor, file: dict) -> dict:
 
     return file2
 
-def ExecuteAnything(cursor: pyodbc.Cursor, query: str) -> List:
+def ExecuteAnything(cursor: pyodbc.Cursor, query: str, rowID: str, fileID: str) -> List:
     """
     Maps the given query to its corresponding value by executing a translated SQL query.
 
@@ -77,6 +80,22 @@ def ExecuteAnything(cursor: pyodbc.Cursor, query: str) -> List:
 
     for i in range(len(divided_query)):
         if divided_query[i] not in [' + ', ' - ', ' * ', ' / ']:
+            match1 = re.match(r"VAL\((.+)\)", divided_query[i])
+            if match1:
+                value = match1.group(1)
+                print(value)
+                if "," in value:
+                    Log("essa")
+                    value = value.split(",")
+                    # raportID = value[0]
+                    # rowID = value[1]
+                    template = ReadTemplateFromPath(f"./templates/{value[0]}.csv")
+                    file = ParseTemplateToRaport(cursor, template)
+                    divided_query[i] = str(memory[file["ID"] + " " + str(value[1])])
+                    print("------" + str(divided_query[i]))
+                else:
+                    divided_query[i] = str(memory[fileID + " " + str(value)])
+                continue
             translated_query = TranslateFromOwnCommandToSQL(divided_query[i])
             sql_executed_with_translated_query = ExecuteSQL(cursor, translated_query)
             if sql_executed_with_translated_query != "N/D":
@@ -85,6 +104,8 @@ def ExecuteAnything(cursor: pyodbc.Cursor, query: str) -> List:
     # print(divided_query)
     expression = "".join(divided_query)
     essa = eval(expression)
+
+    memory[fileID + " " + str(rowID)] = essa
 
     Log(f"Query ({query}) executed successfully: {essa}")
 
