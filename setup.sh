@@ -4,12 +4,15 @@ clear
 mkdir raports
 mkdir data
 
-# Install necessary packages and set up the SQL Server container
-pacman -S --noconfirm unixodbc
-sudo -u user yay -S --noconfirm msodbcsql17
-docker rm -f mssql-container 2> /dev/null
+python3 -m venv .venv
+.venv/bin/pip install pandas pyodbc
 
-# Run the SQL Server Docker container
+# Install necessary packages and set up the SQL Server container
+pacman -S --noconfirm unixodbc docker
+sudo -u user yay -S --noconfirm msodbcsql17
+
+systemctl start docker
+docker rm -f mssql-container 2> /dev/null
 docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=YourStrong.Passw0rd" -p 1433:1433 --name mssql-container -d mcr.microsoft.com/mssql/server:2022-latest
 
 # Wait for the SQL Server to be fully up
